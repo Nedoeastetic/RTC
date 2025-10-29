@@ -6,19 +6,49 @@ import FilterPanel from "@/components/history/FilterPanel";
 import DataTable from "@/components/history/DataTable";
 import TrendChart from "@/components/history/TrendChart";
 import CSVUploadModal from "@/components/CSVUploadModal";
+import StockDepletionForecast from "@/components/dashboard/StockDepletionForecast";
+import ReplenishmentNeeds from "@/components/dashboard/ReplenishmentNeeds";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 const History = () => {
   const navigate = useNavigate();
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [stats, setStats] = useState({
+    totalScans: 0,
+    uniqueProducts: 0,
+    discrepancies: 0,
+    avgTime: "12 мин"
+  });
 
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
       navigate("/login");
     }
+    fetchStats();
   }, [navigate]);
+
+  const fetchStats = async () => {
+    const { data: scans, error: scansError } = await supabase
+      .from("inventory_scans")
+      .select("*");
+
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select("*");
+
+    if (!scansError && scans) {
+      const discrepancyCount = scans.filter((scan: any) => scan.status === "расхождение").length;
+      setStats({
+        totalScans: scans.length,
+        uniqueProducts: products?.length || 0,
+        discrepancies: discrepancyCount,
+        avgTime: "12 мин"
+      });
+    }
+  };
 
   const handleFilterChange = (filters: any) => {
     console.log("Filters applied:", filters);
@@ -50,23 +80,28 @@ const History = () => {
             <div className="grid grid-cols-4 gap-6 mb-6">
               <div>
                 <p className="text-sm text-muted-foreground">Всего проверок за период</p>
-                <p className="text-2xl font-bold text-foreground">1,247</p>
+                <p className="text-2xl font-bold text-foreground">{stats.totalScans}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Уникальных товаров</p>
-                <p className="text-2xl font-bold text-foreground">324</p>
+                <p className="text-2xl font-bold text-foreground">{stats.uniqueProducts}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Выявлено расхождений</p>
-                <p className="text-2xl font-bold text-destructive">47</p>
+                <p className="text-2xl font-bold text-destructive">{stats.discrepancies}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Среднее время инвентаризации</p>
-                <p className="text-2xl font-bold text-foreground">12 мин</p>
+                <p className="text-2xl font-bold text-foreground">{stats.avgTime}</p>
               </div>
             </div>
           </CardContent>
         </Card>
+
+        <div className="grid grid-cols-2 gap-6">
+          <StockDepletionForecast />
+          <ReplenishmentNeeds />
+        </div>
 
         <DataTable
           onExportExcel={handleExportExcel}

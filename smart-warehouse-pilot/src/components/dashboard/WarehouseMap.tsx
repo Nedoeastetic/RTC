@@ -1,148 +1,201 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Robot {
-  id: number;
-  x: number;
-  y: number;
-  battery: number;
-  status: "active" | "low-battery" | "offline";
+  id: string;
+  row_pos: number;
+  col_pos: number;
+  battery_level: number;
+  status: "idle" | "working" | "charging" | "low_battery";
 }
 
-const mockRobots: Robot[] = [
-  { id: 1, x: 150, y: 100, battery: 85, status: "active" },
-  { id: 2, x: 350, y: 200, battery: 25, status: "low-battery" },
-  { id: 3, x: 550, y: 150, battery: 92, status: "active" },
-  { id: 4, x: 250, y: 300, battery: 5, status: "offline" },
-];
+interface Zone {
+  row_pos: number;
+  col_pos: number;
+  zone_status: "free" | "occupied" | "maintenance";
+  robot_id: string | null;
+}
 
 const WarehouseMap = () => {
   const [zoom, setZoom] = useState(1);
-  const [hoveredRobot, setHoveredRobot] = useState<number | null>(null);
+  const [hoveredRobot, setHoveredRobot] = useState<Robot | null>(null);
+  const [robots, setRobots] = useState<Robot[]>([]);
+  const [zones, setZones] = useState<Zone[]>([]);
+
+  useEffect(() => {
+    fetchData();
+    const channel = supabase
+      .channel("warehouse-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "robots" }, fetchData)
+      .on("postgres_changes", { event: "*", schema: "public", table: "warehouse_zones" }, fetchData)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const fetchData = async () => {
+    const { data: robotsData } = await supabase.from("robots").select("*");
+    const { data: zonesData } = await supabase.from("warehouse_zones").select("*");
+
+    if (robotsData) setRobots(robotsData as Robot[]);
+    if (zonesData) setZones(zonesData as Zone[]);
+  };
 
   const getRobotColor = (status: Robot["status"]) => {
     switch (status) {
-      case "active":
-        return "hsl(var(--success))";
-      case "low-battery":
-        return "hsl(var(--warning))";
-      case "offline":
-        return "hsl(var(--destructive))";
+      case "working":
+        return "bg-green-500";
+      case "idle":
+        return "bg-blue-500";
+      case "charging":
+        return "bg-yellow-500";
+      case "low_battery":
+        return "bg-red-500";
+      default:
+        return "bg-gray-500";
     }
   };
 
+  const getZoneColor = (status: Zone["zone_status"]) => {
+    switch (status) {
+      case "free":
+        return "bg-green-100 border-green-300";
+      case "occupied":
+        return "bg-yellow-100 border-yellow-300";
+      case "maintenance":
+        return "bg-red-100 border-red-300";
+      default:
+        return "bg-gray-100 border-gray-300";
+    }
+  };
+
+  const CELL_SIZE = 80;
+  const ROWS = 6;
+  const COLS = 5;
+
   return (
-    <div className="bg-card rounded-lg border border-border p-4 h-full">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-foreground">Карта склада</h2>
-        <div className="flex items-center space-x-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setZoom(Math.max(0.5, zoom - 0.1))}
-          >
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setZoom(Math.min(2, zoom + 0.1))}
-          >
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setZoom(1)}>
-            <Maximize2 className="h-4 w-4" />
-          </Button>
+    <Card className="h-full">
+      <CardHeader>
+        <div className="flex justify-between items-center">
+          <CardTitle>Карта склада - Матрица</CardTitle>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setZoom(prev => Math.min(prev + 0.1, 2))}
+            >
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setZoom(prev => Math.max(prev - 0.1, 0.5))}
+            >
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setZoom(1)}
+            >
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
-      </div>
-
-      <div className="relative bg-muted rounded-lg overflow-hidden" style={{ height: "calc(100% - 60px)" }}>
-        <svg
-          width="100%"
-          height="100%"
-          viewBox="0 0 800 400"
-          style={{ transform: `scale(${zoom})` }}
-          className="transition-transform duration-200"
+      </CardHeader>
+      <CardContent className="h-[calc(100%-4rem)] relative overflow-auto">
+        <div 
+          className="inline-block p-4"
+          style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
         >
-          {/* Grid lines */}
-          <defs>
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="hsl(var(--border))" strokeWidth="1" />
-            </pattern>
-          </defs>
-          <rect width="800" height="400" fill="url(#grid)" />
+          {/* Matrix Grid */}
+          <div className="grid gap-2" style={{ 
+            gridTemplateColumns: `repeat(${COLS}, ${CELL_SIZE}px)`,
+            gridTemplateRows: `repeat(${ROWS}, ${CELL_SIZE}px)`
+          }}>
+            {Array.from({ length: ROWS }).map((_, rowIdx) =>
+              Array.from({ length: COLS }).map((_, colIdx) => {
+                const zone = zones.find(z => z.row_pos === rowIdx && z.col_pos === colIdx);
+                const robot = robots.find(r => r.row_pos === rowIdx && r.col_pos === colIdx);
+                
+                return (
+                  <div
+                    key={`${rowIdx}-${colIdx}`}
+                    className={`border-2 rounded-lg flex items-center justify-center relative transition-all ${
+                      zone ? getZoneColor(zone.zone_status) : "bg-gray-50 border-gray-200"
+                    }`}
+                    style={{ width: CELL_SIZE, height: CELL_SIZE }}
+                  >
+                    {robot && (
+                      <div
+                        className="relative cursor-pointer"
+                        onMouseEnter={() => setHoveredRobot(robot)}
+                        onMouseLeave={() => setHoveredRobot(null)}
+                      >
+                        <div className={`w-14 h-14 rounded-full ${getRobotColor(robot.status)} flex items-center justify-center border-4 border-white shadow-lg`}>
+                          <span className="text-white font-bold text-sm">{robot.id}</span>
+                        </div>
+                        <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 bg-white rounded-full px-2 py-0.5 text-xs font-semibold border shadow-sm whitespace-nowrap">
+                          {robot.battery_level}%
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
 
-          {/* Zone labels */}
-          {["A", "B", "C", "D", "E"].map((zone, i) => (
-            <text
-              key={zone}
-              x={160 * i + 80}
-              y={30}
-              textAnchor="middle"
-              className="fill-muted-foreground text-sm font-medium"
-            >
-              Зона {zone}
-            </text>
-          ))}
+          {/* Legend */}
+          <div className="mt-6 p-4 bg-card border rounded-lg">
+            <p className="font-semibold mb-3 text-sm">Легенда:</p>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-green-100 border-2 border-green-300 rounded"></div>
+                <span>Свободная зона</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-yellow-100 border-2 border-yellow-300 rounded"></div>
+                <span>Занятая зона</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-red-100 border-2 border-red-300 rounded"></div>
+                <span>Обслуживание</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-green-500 rounded-full"></div>
+                <span>Работает</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-blue-500 rounded-full"></div>
+                <span>Ожидает</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-yellow-500 rounded-full"></div>
+                <span>Зарядка</span>
+              </div>
+            </div>
+          </div>
 
-          {/* Zone areas with colors */}
-          {[0, 1, 2, 3, 4].map((i) => (
-            <rect
-              key={i}
-              x={160 * i}
-              y={50}
-              width={160}
-              height={350}
-              fill={i % 3 === 0 ? "hsl(var(--success)/0.1)" : i % 3 === 1 ? "hsl(var(--warning)/0.1)" : "hsl(var(--destructive)/0.1)"}
-              className="transition-opacity hover:opacity-50 cursor-pointer"
-            />
-          ))}
-
-          {/* Robots */}
-          {mockRobots.map((robot) => (
-            <g
-              key={robot.id}
-              transform={`translate(${robot.x}, ${robot.y})`}
-              onMouseEnter={() => setHoveredRobot(robot.id)}
-              onMouseLeave={() => setHoveredRobot(null)}
-              className="cursor-pointer"
-            >
-              <circle r="15" fill={getRobotColor(robot.status)} className="transition-all" />
-              <text
-                textAnchor="middle"
-                y="5"
-                className="fill-white text-xs font-bold pointer-events-none"
-              >
-                {robot.id}
-              </text>
-
-              {hoveredRobot === robot.id && (
-                <g transform="translate(20, -30)">
-                  <rect
-                    width="120"
-                    height="60"
-                    fill="hsl(var(--card))"
-                    stroke="hsl(var(--border))"
-                    strokeWidth="1"
-                    rx="4"
-                  />
-                  <text x="10" y="20" className="fill-foreground text-xs">
-                    Робот #{robot.id}
-                  </text>
-                  <text x="10" y="38" className="fill-muted-foreground text-xs">
-                    Батарея: {robot.battery}%
-                  </text>
-                  <text x="10" y="52" className="fill-muted-foreground text-xs">
-                    {robot.status === "active" ? "Активен" : robot.status === "low-battery" ? "Низкий заряд" : "Offline"}
-                  </text>
-                </g>
-              )}
-            </g>
-          ))}
-        </svg>
-      </div>
-    </div>
+          {/* Hover info */}
+          {hoveredRobot && (
+            <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-background/95 backdrop-blur-sm rounded-lg p-4 border-2 border-primary shadow-xl z-50">
+              <p className="font-bold text-lg mb-2">{hoveredRobot.id}</p>
+              <div className="space-y-1 text-sm">
+                <p>Батарея: <span className="font-semibold">{hoveredRobot.battery_level}%</span></p>
+                <p>Статус: <span className="font-semibold capitalize">{hoveredRobot.status}</span></p>
+                <p>Позиция: <span className="font-semibold">Ряд: {hoveredRobot.row_pos}, Кол: {hoveredRobot.col_pos}</span></p>
+              </div>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 

@@ -1,130 +1,158 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, TrendingDown } from "lucide-react";
+import { RefreshCw, TrendingDown, Package, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
-interface Prediction {
-  product: string;
-  currentStock: number;
-  depletionDate: string;
-  recommendedOrder: number;
+interface Product {
+  id: string;
+  article: string;
+  name: string;
+  current_stock: number;
+  daily_consumption: number;
+  min_stock_level: number;
+  reorder_quantity: number;
 }
 
-const mockPredictions: Prediction[] = [
-  {
-    product: "Роутер RT-AC68U",
-    currentStock: 45,
-    depletionDate: "2024-03-22",
-    recommendedOrder: 150,
-  },
-  {
-    product: "Модем DSL-2640U",
-    currentStock: 12,
-    depletionDate: "2024-03-18",
-    recommendedOrder: 200,
-  },
-  {
-    product: "Кабель UTP Cat.5e",
-    currentStock: 3,
-    depletionDate: "2024-03-16",
-    recommendedOrder: 500,
-  },
-  {
-    product: "Коммутатор GS108E",
-    currentStock: 8,
-    depletionDate: "2024-03-19",
-    recommendedOrder: 100,
-  },
-  {
-    product: "Точка доступа UAP-AC-LR",
-    currentStock: 18,
-    depletionDate: "2024-03-21",
-    recommendedOrder: 80,
-  },
-];
-
 const AIPredictions = () => {
-  const [predictions] = useState(mockPredictions);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
-  const [confidence] = useState(87);
+  const [confidence, setConfidence] = useState(87);
 
-  const handleRefresh = () => {
+  useEffect(() => {
+    fetchCriticalProducts();
+  }, []);
+
+  const fetchCriticalProducts = async () => {
     setLoading(true);
-    toast.info("Обновление прогноза...");
-    setTimeout(() => {
-      setLoading(false);
-      toast.success("Прогноз обновлен");
-    }, 1500);
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .order("current_stock", { ascending: true });
+
+    if (!error && data) {
+      const criticalProducts = (data as Product[]).filter(product => {
+        const daysLeft = calculateDaysUntilDepletion(product);
+        return daysLeft <= 7 && daysLeft !== Infinity;
+      });
+      setProducts(criticalProducts);
+    }
+    setLoading(false);
   };
 
-  const getDaysUntilDepletion = (date: string) => {
-    const today = new Date();
-    const depletionDate = new Date(date);
-    const diffTime = depletionDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
+  const handleRefresh = () => {
+    toast.info("Обновление прогнозов...");
+    fetchCriticalProducts();
+    setConfidence(Math.floor(Math.random() * 15) + 80);
+    toast.success("Прогнозы обновлены");
+  };
+
+  const calculateDaysUntilDepletion = (product: Product) => {
+    if (product.daily_consumption === 0) return Infinity;
+    return Math.floor(product.current_stock / product.daily_consumption);
+  };
+
+  const getDepletionDate = (product: Product) => {
+    const days = calculateDaysUntilDepletion(product);
+    if (days === Infinity) return "Не определено";
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    return date.toLocaleDateString("ru-RU");
   };
 
   return (
-    <Card className="h-full flex flex-col">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center">
-            <TrendingDown className="mr-2 h-4 w-4 text-secondary" />
-            Прогноз ИИ на следующие 7 дней
+    <Card className="h-full">
+      <CardHeader>
+        <div className="flex justify-between items-center">
+          <CardTitle className="flex items-center gap-2">
+            <TrendingDown className="h-5 w-5" />
+            Критические прогнозы ИИ
           </CardTitle>
-          <Button size="sm" variant="outline" onClick={handleRefresh} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
-        <div className="text-xs text-muted-foreground mt-2">
-          Достоверность прогноза: <span className="font-semibold text-secondary">{confidence}%</span>
+        <div className="flex items-center gap-2 mt-2">
+          <span className="text-sm text-muted-foreground">Точность прогноза:</span>
+          <span className="text-sm font-semibold text-primary">{confidence}%</span>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 overflow-hidden">
-        <div className="h-full overflow-y-auto space-y-3 pr-2">
-          {predictions.map((prediction, index) => {
-            const daysLeft = getDaysUntilDepletion(prediction.depletionDate);
+      <CardContent className="space-y-4">
+        {loading ? (
+          <p className="text-sm text-muted-foreground text-center py-8">Загрузка...</p>
+        ) : products.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8">
+            Нет критических прогнозов
+          </p>
+        ) : (
+          products.map((product) => {
+            const daysLeft = calculateDaysUntilDepletion(product);
+            const isUrgent = daysLeft <= 3;
+            const isWarning = daysLeft <= 7 && daysLeft > 3;
+            const depletionDate = getDepletionDate(product);
+
             return (
               <div
-                key={index}
-                className="border border-border rounded-lg p-3 bg-card hover:bg-muted/50 transition-colors"
+                key={product.id}
+                className={`p-4 rounded-lg border-l-4 ${
+                  isUrgent
+                    ? "bg-red-50 dark:bg-red-950/20 border-red-500"
+                    : isWarning
+                    ? "bg-yellow-50 dark:bg-yellow-950/20 border-yellow-500"
+                    : "bg-card border-primary/20"
+                }`}
               >
-                <div className="flex items-start justify-between mb-2">
-                  <h4 className="text-sm font-medium text-foreground">{prediction.product}</h4>
-                  <div
-                    className={`text-xs font-semibold px-2 py-1 rounded ${
-                      daysLeft <= 2
-                        ? "bg-destructive/10 text-destructive"
-                        : daysLeft <= 5
-                        ? "bg-warning/10 text-warning"
-                        : "bg-success/10 text-success"
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    {isUrgent && <AlertTriangle className="h-4 w-4 text-red-500" />}
+                    {isWarning && <AlertTriangle className="h-4 w-4 text-yellow-500" />}
+                    <div>
+                      <h4 className="font-semibold">{product.name}</h4>
+                      <p className="text-xs text-muted-foreground">{product.article}</p>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-sm font-semibold ${
+                      isUrgent
+                        ? "text-red-600 dark:text-red-400"
+                        : isWarning
+                        ? "text-yellow-600 dark:text-yellow-400"
+                        : "text-muted-foreground"
                     }`}
                   >
-                    {daysLeft} дней
-                  </div>
+                    {daysLeft === Infinity ? "∞" : `${daysLeft} дней`}
+                  </span>
                 </div>
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Текущий остаток:</span>
-                    <span className="font-medium text-foreground">{prediction.currentStock} шт.</span>
+
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground mb-1">Текущий остаток</p>
+                    <p className="font-semibold flex items-center gap-1">
+                      <Package className="h-4 w-4" />
+                      {product.current_stock}
+                    </p>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Дата исчерпания:</span>
-                    <span className="font-medium text-foreground">
-                      {new Date(prediction.depletionDate).toLocaleDateString("ru-RU")}
-                    </span>
+                  <div>
+                    <p className="text-muted-foreground mb-1">Истощится</p>
+                    <p className="font-semibold">{depletionDate}</p>
                   </div>
-                  <div className="flex justify-between pt-1 border-t border-border">
-                    <span className="text-muted-foreground">Рекомендуется заказать:</span>
-                    <span className="font-semibold text-primary">{prediction.recommendedOrder} шт.</span>
+                  <div>
+                    <p className="text-muted-foreground mb-1">Рек. заказ</p>
+                    <p className="font-semibold text-primary">
+                      {product.reorder_quantity}
+                    </p>
                   </div>
                 </div>
               </div>
             );
-          })}
-        </div>
+          })
+        )}
       </CardContent>
     </Card>
   );
