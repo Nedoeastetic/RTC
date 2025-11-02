@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+
+interface WarehouseMapProps {
+  warehouseCode: string;
+}
 
 interface Robot {
   id: string;
@@ -19,32 +22,17 @@ interface Zone {
   robot_id: string | null;
 }
 
-const WarehouseMap = () => {
+const WarehouseMap = ({ warehouseCode }: WarehouseMapProps) => {
   const [zoom, setZoom] = useState(1);
   const [hoveredRobot, setHoveredRobot] = useState<Robot | null>(null);
   const [robots, setRobots] = useState<Robot[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
 
   useEffect(() => {
-    fetchData();
-    const channel = supabase
-      .channel("warehouse-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "robots" }, fetchData)
-      .on("postgres_changes", { event: "*", schema: "public", table: "warehouse_zones" }, fetchData)
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  const fetchData = async () => {
-    const { data: robotsData } = await supabase.from("robots").select("*");
-    const { data: zonesData } = await supabase.from("warehouse_zones").select("*");
-
-    if (robotsData) setRobots(robotsData as Robot[]);
-    if (zonesData) setZones(zonesData as Zone[]);
-  };
+    console.log('Loading warehouse map for:', warehouseCode);
+    // TODO: Replace with real API call
+    // fetchData(warehouseCode);
+  }, [warehouseCode]);
 
   const getRobotColor = (status: Robot["status"]) => {
     switch (status) {
@@ -82,7 +70,7 @@ const WarehouseMap = () => {
     <Card className="h-full">
       <CardHeader>
         <div className="flex justify-between items-center">
-          <CardTitle>Карта склада - Матрица</CardTitle>
+          <CardTitle>Warehouse Map - {warehouseCode}</CardTitle>
           <div className="flex gap-2">
             <Button
               variant="outline"
@@ -109,12 +97,12 @@ const WarehouseMap = () => {
         </div>
       </CardHeader>
       <CardContent className="h-[calc(100%-4rem)] relative overflow-auto">
-        <div 
+        <div
           className="inline-block p-4"
           style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
         >
           {/* Matrix Grid */}
-          <div className="grid gap-2" style={{ 
+          <div className="grid gap-2" style={{
             gridTemplateColumns: `repeat(${COLS}, ${CELL_SIZE}px)`,
             gridTemplateRows: `repeat(${ROWS}, ${CELL_SIZE}px)`
           }}>
@@ -122,7 +110,7 @@ const WarehouseMap = () => {
               Array.from({ length: COLS }).map((_, colIdx) => {
                 const zone = zones.find(z => z.row_pos === rowIdx && z.col_pos === colIdx);
                 const robot = robots.find(r => r.row_pos === rowIdx && r.col_pos === colIdx);
-                
+
                 return (
                   <div
                     key={`${rowIdx}-${colIdx}`}
@@ -153,46 +141,34 @@ const WarehouseMap = () => {
 
           {/* Legend */}
           <div className="mt-6 p-4 bg-card border rounded-lg">
-            <p className="font-semibold mb-3 text-sm">Легенда:</p>
+            <p className="font-semibold mb-3 text-sm">Legend:</p>
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-green-100 border-2 border-green-300 rounded"></div>
-                <span>Свободная зона</span>
+                <span>Free zone</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-yellow-100 border-2 border-yellow-300 rounded"></div>
-                <span>Занятая зона</span>
+                <span>Occupied zone</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-red-100 border-2 border-red-300 rounded"></div>
-                <span>Обслуживание</span>
+                <span>Maintenance</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-green-500 rounded-full"></div>
-                <span>Работает</span>
+                <span>Working</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-blue-500 rounded-full"></div>
-                <span>Ожидает</span>
+                <span>Idle</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-yellow-500 rounded-full"></div>
-                <span>Зарядка</span>
+                <span>Charging</span>
               </div>
             </div>
           </div>
-
-          {/* Hover info */}
-          {hoveredRobot && (
-            <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-background/95 backdrop-blur-sm rounded-lg p-4 border-2 border-primary shadow-xl z-50">
-              <p className="font-bold text-lg mb-2">{hoveredRobot.id}</p>
-              <div className="space-y-1 text-sm">
-                <p>Батарея: <span className="font-semibold">{hoveredRobot.battery_level}%</span></p>
-                <p>Статус: <span className="font-semibold capitalize">{hoveredRobot.status}</span></p>
-                <p>Позиция: <span className="font-semibold">Ряд: {hoveredRobot.row_pos}, Кол: {hoveredRobot.col_pos}</span></p>
-              </div>
-            </div>
-          )}
         </div>
       </CardContent>
     </Card>

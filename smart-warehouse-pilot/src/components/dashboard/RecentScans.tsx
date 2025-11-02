@@ -4,6 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Pause, Play } from "lucide-react";
 
+interface RecentScansProps {
+  warehouseCode: string;
+}
+
 interface Scan {
   id: string;
   time: string;
@@ -21,7 +25,7 @@ const mockScans: Scan[] = [
     time: new Date().toLocaleTimeString("ru-RU"),
     robotId: 3,
     zone: "A-12",
-    product: "Роутер RT-AC68U",
+    product: "Router RT-AC68U",
     article: "TEL-4567",
     quantity: 45,
     status: "ok",
@@ -31,7 +35,7 @@ const mockScans: Scan[] = [
     time: new Date(Date.now() - 5000).toLocaleTimeString("ru-RU"),
     robotId: 1,
     zone: "B-08",
-    product: "Модем DSL-2640U",
+    product: "Modem DSL-2640U",
     article: "TEL-8901",
     quantity: 12,
     status: "low",
@@ -41,28 +45,32 @@ const mockScans: Scan[] = [
     time: new Date(Date.now() - 10000).toLocaleTimeString("ru-RU"),
     robotId: 2,
     zone: "C-15",
-    product: "Кабель UTP Cat.5e",
+    product: "Cable UTP Cat.5e",
     article: "CAB-2345",
     quantity: 3,
     status: "critical",
   },
 ];
 
-const RecentScans = () => {
+const RecentScans = ({ warehouseCode }: RecentScansProps) => {
   const [scans, setScans] = useState<Scan[]>(mockScans);
   const [paused, setPaused] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    console.log('Loading recent scans for:', warehouseCode);
+  }, [warehouseCode]);
 
   useEffect(() => {
     if (paused) return;
 
     const interval = setInterval(() => {
       const products = [
-        "Роутер RT-AC68U",
-        "Модем DSL-2640U",
-        "Кабель UTP Cat.5e",
-        "Коммутатор GS108E",
-        "Точка доступа UAP-AC-LR",
+        "Router RT-AC68U",
+        "Modem DSL-2640U",
+        "Cable UTP Cat.5e",
+        "Switch GS108E",
+        "Access Point UAP-AC-LR",
       ];
       const articles = ["TEL-4567", "TEL-8901", "CAB-2345", "NET-1122", "WIR-9988"];
       const zones = ["A-12", "B-08", "C-15", "D-03", "E-20"];
@@ -94,11 +102,11 @@ const RecentScans = () => {
   const getStatusBadge = (status: Scan["status"]) => {
     switch (status) {
       case "ok":
-        return <Badge className="bg-success text-success-foreground">ОК</Badge>;
+        return <Badge className="bg-green-500 text-white">OK</Badge>;
       case "low":
-        return <Badge className="bg-warning text-warning-foreground">Низкий остаток</Badge>;
+        return <Badge className="bg-yellow-500 text-white">Low Stock</Badge>;
       case "critical":
-        return <Badge className="bg-destructive text-destructive-foreground">Критично</Badge>;
+        return <Badge className="bg-red-500 text-white">Critical</Badge>;
     }
   };
 
@@ -106,7 +114,7 @@ const RecentScans = () => {
     <Card className="h-full flex flex-col">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">Последние сканирования</CardTitle>
+          <CardTitle className="text-sm font-medium">Recent Scans - {warehouseCode}</CardTitle>
           <Button
             size="sm"
             variant="outline"
@@ -129,14 +137,14 @@ const RecentScans = () => {
               </div>
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Робот #{scan.robotId}</span>
+                  <span className="text-xs text-muted-foreground">Robot #{scan.robotId}</span>
                   <span className="text-xs font-medium text-primary">{scan.zone}</span>
                 </div>
                 <div className="text-sm font-medium text-foreground">{scan.product}</div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">{scan.article}</span>
                   <span className="text-sm font-semibold text-foreground">
-                    {scan.quantity} шт.
+                    {scan.quantity} pcs
                   </span>
                 </div>
               </div>

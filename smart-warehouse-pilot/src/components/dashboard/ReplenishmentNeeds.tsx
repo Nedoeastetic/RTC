@@ -1,63 +1,114 @@
+// File: C:\Users\Admin\RTC\smart-warehouse-pilot\src\components\dashboard\ReplenishmentNeeds.tsx
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Package, TrendingUp } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { Package, TrendingUp, Loader2, AlertTriangle } from "lucide-react";
+import { apiClient } from "@/lib/api";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 
-interface Product {
-  id: string;
-  article: string;
-  name: string;
-  current_stock: number;
-  daily_consumption: number;
-  min_stock_level: number;
-  reorder_quantity: number;
+interface ReplenishmentNeedsProps {
+  warehouseCode: string;
 }
 
-const ReplenishmentNeeds = () => {
+interface Product {
+  productCode: string;
+  productName: string;
+  minStock: number;
+  quantity: number;
+  replenish: number;
+}
+
+const ReplenishmentNeeds = ({ warehouseCode }: ReplenishmentNeedsProps) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [totalNeeded, setTotalNeeded] = useState(0);
 
   useEffect(() => {
-    fetchProducts();
-  }, []);
-
-  const fetchProducts = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .order("current_stock", { ascending: true });
-
-    if (!error && data) {
-      const productsData = data as Product[];
-      setProducts(productsData);
-      
-      const total = productsData.reduce((sum, product) => {
-        if (product.current_stock < product.min_stock_level) {
-          return sum + 1;
-        }
-        return sum;
-      }, 0);
-      setTotalNeeded(total);
+    if (warehouseCode) {
+      fetchReplenishmentNeeds();
     }
-    setLoading(false);
+  }, [warehouseCode]);
+
+  const fetchReplenishmentNeeds = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiClient.get(`/${warehouseCode}/inventory/history/low-stock`);
+      setProducts(data);
+      
+      // Calculate total products needing replenishment
+      const total = data.filter((product: Product) => product.quantity < product.minStock).length;
+      setTotalNeeded(total);
+    } catch (error) {
+      console.error('Failed to fetch replenishment needs:', error);
+      setError('Не удалось загрузить данные о пополнении');
+      toast.error("Ошибка загрузки данных о пополнении запасов");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const needsReplenishment = (product: Product) => {
-    return product.current_stock < product.min_stock_level;
+    return product.quantity < product.minStock;
   };
 
-  const getReplenishmentAmount = (product: Product) => {
-    if (!needsReplenishment(product)) return 0;
-    return product.reorder_quantity;
+  const getUrgencyLevel = (product: Product) => {
+    const stockRatio = product.quantity / product.minStock;
+    if (stockRatio <= 0.1) return "critical";
+    if (stockRatio <= 0.3) return "high";
+    if (stockRatio <= 0.5) return "medium";
+    return "low";
+  };
+
+  const getUrgencyColor = (urgency: string) => {
+    switch (urgency) {
+      case "critical":
+        return "text-red-500";
+      case "high":
+        return "text-orange-500";
+      case "medium":
+        return "text-yellow-500";
+      default:
+        return "text-blue-500";
+    }
+  };
+
+  const shouldShowAlertIcon = (urgency: string) => {
+    return urgency === "critical" || urgency === "high";
   };
 
   if (loading) {
     return (
       <Card className="h-full">
-        <CardContent className="p-6">
-          <p className="text-sm text-muted-foreground">Загрузка...</p>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Package className="h-5 w-5" />
+            Replenishment Needs - {warehouseCode}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center justify-center h-32">
+          <Loader2 className="h-6 w-6 animate-spin mr-2" />
+          <span>Загрузка данных...</span>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="h-full">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Package className="h-5 w-5" />
+            Replenishment Needs - {warehouseCode}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center justify-center h-32 text-destructive">
+          <p>{error}</p>
+          <Button onClick={fetchReplenishmentNeeds} variant="outline" className="mt-2">
+            Попробовать снова
+          </Button>
         </CardContent>
       </Card>
     );
@@ -70,47 +121,98 @@ const ReplenishmentNeeds = () => {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Package className="h-5 w-5" />
-          Потребности в пополнении
+          Replenishment Needs - {warehouseCode}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="p-4 bg-primary/10 rounded-lg border border-primary/20">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-muted-foreground">Товаров требует пополнения</p>
+              <p className="text-sm text-muted-foreground">Товары, требующие пополнения</p>
               <p className="text-3xl font-bold text-primary">{totalNeeded}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                из {products.length} отслеживаемых товаров
+              </p>
             </div>
             <TrendingUp className="h-8 w-8 text-primary" />
           </div>
         </div>
 
         <div className="space-y-3">
-          {productsNeedingReplenishment.slice(0, 4).map((product) => (
-            <div key={product.id} className="p-3 border rounded-lg bg-card">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex-1">
-                  <p className="font-medium text-sm">{product.name}</p>
-                  <p className="text-xs text-muted-foreground">{product.article}</p>
+          {productsNeedingReplenishment.slice(0, 4).map((product) => {
+            const urgency = getUrgencyLevel(product);
+            const urgencyColor = getUrgencyColor(urgency);
+            const showAlertIcon = shouldShowAlertIcon(urgency);
+
+            return (
+              <div key={product.productCode} className="p-3 border rounded-lg bg-card">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      {showAlertIcon && <AlertTriangle className={`h-4 w-4 ${urgencyColor}`} />}
+                      <p className="font-medium text-sm">{product.productName}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{product.productCode}</p>
+                  </div>
+                  <span className={`text-sm font-semibold ${urgencyColor}`}>
+                    {urgency === "critical" ? "Критично" : 
+                     urgency === "high" ? "Высокий" : 
+                     urgency === "medium" ? "Средний" : "Низкий"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <p className="text-muted-foreground">Текущий</p>
+                    <p className={`font-semibold ${urgencyColor}`}>{product.quantity}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Мин. запас</p>
+                    <p className="font-semibold">{product.minStock}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Пополнить</p>
+                    <p className="font-semibold text-primary">{product.replenish}</p>
+                  </div>
+                </div>
+
+                {/* Progress bar showing stock level */}
+                <div className="mt-2">
+                  <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                    <span>Заполнение запаса</span>
+                    <span>{Math.round((product.quantity / product.minStock) * 100)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full ${
+                        urgency === "critical" ? "bg-red-500" :
+                        urgency === "high" ? "bg-orange-500" :
+                        urgency === "medium" ? "bg-yellow-500" : "bg-blue-500"
+                      }`}
+                      style={{ width: `${Math.min((product.quantity / product.minStock) * 100, 100)}%` }}
+                    />
+                  </div>
                 </div>
               </div>
-              
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div>
-                  <p className="text-muted-foreground">Текущий</p>
-                  <p className="font-semibold text-destructive">{product.current_stock}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Мин. уровень</p>
-                  <p className="font-semibold">{product.min_stock_level}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Пополнить</p>
-                  <p className="font-semibold text-primary">{getReplenishmentAmount(product)}</p>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+
+        {productsNeedingReplenishment.length === 0 && (
+          <div className="text-center py-8 text-muted-foreground">
+            <Package className="h-12 w-12 mx-auto mb-2 opacity-50" />
+            <p>Все товары в достаточном количестве</p>
+            <p className="text-sm">Нет товаров, требующих пополнения</p>
+          </div>
+        )}
+
+        {productsNeedingReplenishment.length > 4 && (
+          <div className="text-center pt-2">
+            <p className="text-sm text-muted-foreground">
+              и еще {productsNeedingReplenishment.length - 4} товаров...
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
