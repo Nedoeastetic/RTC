@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
+import Register from "./pages/Register";
 import WarehouseSelection from "./pages/WarehouseSelection";
 import Dashboard from "./pages/Dashboard";
 import History from "./pages/History";
@@ -10,6 +11,7 @@ const App = () => (
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
       <Route path="/warehouses" element={<WarehouseSelection />} />
       <Route path="/dashboard/:warehouseCode" element={<Dashboard />} />
       <Route path="/history/:warehouseCode" element={<History />} />
