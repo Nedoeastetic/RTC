@@ -75,7 +75,7 @@ const CSVUploadModal = ({ open, onClose, warehouseCode }: CSVUploadModalProps) =
 
       // Make the actual API call with proper multipart/form-data
       const token = localStorage.getItem("token");
-      const response = await fetch(`http://localhost:8080/api/${warehouseCode}/inventory/upload-csv`, {
+      const response = await fetch(`http://localhost:8080/api/${warehouseCode}/inventory/import/csv`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

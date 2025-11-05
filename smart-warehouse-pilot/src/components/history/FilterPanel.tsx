@@ -50,7 +50,7 @@ const FilterPanel = ({ warehouseCode, onFilterChange }: FilterPanelProps) => {
   const fetchRobots = async () => {
     setLoadingRobots(true);
     try {
-      const data = await apiClient.get(`/${warehouseCode}/robot`);
+      const data = await apiClient.get(`/robots/warehouse/${warehouseCode}`);
       setRobots(data);
     } catch (error) {
       console.error('Failed to fetch robots:', error);
