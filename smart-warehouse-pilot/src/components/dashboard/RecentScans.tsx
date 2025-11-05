@@ -1,4 +1,3 @@
-// File: C:\Users\Admin\RTC\smart-warehouse-pilot\src\components\dashboard\RecentScans.tsx
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,26 +41,27 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
     if (!robotData.recent_scans || !Array.isArray(robotData.recent_scans)) return;
 
     const newScans: Scan[] = [];
-    
+
     robotData.recent_scans.forEach((scan: any) => {
       const scanId = getScanId(scan, robotData.robot_id);
-      
-      // Проверяем, не обрабатывали ли мы уже это сканирование
+
       if (!processedScansRef.current.has(scanId)) {
         processedScansRef.current.add(scanId);
-        
+
+        // Обеспечиваем, что все поля являются примитивами, а не объектами
         newScans.push({
           id: scanId,
-          robot_id: robotData.robot_id,
-          productCode: scan.productCode || "N/A",
-          productName: scan.productName || "Unknown Product",
-          quantity: scan.quantity || 0,
-          status: scan.status || "OK",
-          diff: scan.diff || 0,
-          scannedAt: scan.scannedAt || new Date().toISOString(),
-          zone: robotData.zone,
-          row: robotData.row,
-          shelf: robotData.shelf
+          robot_id: String(robotData.robot_id || ""),
+          productCode: String(scan.productCode || "N/A"),
+          productName: String(scan.productName || "Unknown Product"),
+          quantity: Number(scan.quantity || 0),
+          status: (scan.status && typeof scan.status === 'string') ? 
+            (scan.status as "OK" | "LOW_STOCK" | "CRITICAL") : "OK",
+          diff: Number(scan.diff || 0),
+          scannedAt: String(scan.scannedAt || new Date().toISOString()),
+          zone: scan.zone ? Number(scan.zone) : undefined,
+          row: scan.row ? Number(scan.row) : undefined,
+          shelf: scan.shelf ? Number(scan.shelf) : undefined
         });
       }
     });
@@ -69,7 +69,6 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
     if (newScans.length > 0) {
       setScans(prev => {
         const updated = [...newScans, ...prev];
-        // Ограничиваем количество отображаемых сканирований
         return updated.slice(0, 100);
       });
     }
@@ -80,17 +79,19 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
     warehouseCode,
     onRobotUpdate: useCallback((data: any) => {
       if (paused) return;
-      
+
       console.log('Received robot update with scans:', data);
-      
-      if (data.recent_scans && Array.isArray(data.recent_scans) && data.recent_scans.length > 0) {
+
+      // Убедимся, что данные имеют правильную структуру
+      if (data && data.recent_scans && Array.isArray(data.recent_scans) && data.recent_scans.length > 0) {
         addNewScans(data);
         setLoading(false);
-        
-        // Показываем уведомление о новых сканированиях
+
+        // Показываем уведомления
         if (data.recent_scans.length === 1) {
-          toast.info(`New scan: ${data.recent_scans[0].productName}`, {
-            description: `Robot ${data.robot_id} scanned ${data.recent_scans[0].quantity} items`
+          const scan = data.recent_scans[0];
+          toast.info(`New scan: ${scan.productName || 'Unknown product'}`, {
+            description: `Robot ${data.robot_id} scanned ${scan.quantity || 0} items`
           });
         } else {
           toast.info(`New scans from Robot ${data.robot_id}`, {
@@ -115,7 +116,10 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
   }, [scans, paused]);
 
   const getStatusBadge = (status: Scan["status"]) => {
-    switch (status) {
+    // Убедимся, что status - это строка
+    const statusText = typeof status === 'string' ? status : 'OK';
+    
+    switch (statusText) {
       case "OK":
         return <Badge className="bg-green-500 text-white">OK</Badge>;
       case "LOW_STOCK":
@@ -123,12 +127,14 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
       case "CRITICAL":
         return <Badge className="bg-red-500 text-white">Critical</Badge>;
       default:
-        return <Badge className="bg-gray-500 text-white">{status}</Badge>;
+        return <Badge className="bg-gray-500 text-white">{statusText}</Badge>;
     }
   };
 
   const getStatusColor = (status: Scan["status"]) => {
-    switch (status) {
+    const statusText = typeof status === 'string' ? status : 'OK';
+    
+    switch (statusText) {
       case "OK":
         return "text-green-600";
       case "LOW_STOCK":
@@ -141,7 +147,9 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
   };
 
   const getStatusBgColor = (status: Scan["status"]) => {
-    switch (status) {
+    const statusText = typeof status === 'string' ? status : 'OK';
+    
+    switch (statusText) {
       case "OK":
         return "bg-green-50 border-green-200";
       case "LOW_STOCK":
@@ -159,13 +167,13 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
       const now = new Date();
       const diffMs = now.getTime() - date.getTime();
       const diffMins = Math.floor(diffMs / 60000);
-      
+
       if (diffMins < 1) return "Just now";
       if (diffMins < 60) return `${diffMins}m ago`;
-      
+
       const diffHours = Math.floor(diffMins / 60);
       if (diffHours < 24) return `${diffHours}h ago`;
-      
+
       return date.toLocaleDateString("ru-RU", {
         day: '2-digit',
         month: '2-digit'
@@ -243,8 +251,8 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CardTitle className="text-sm font-medium">Recent Scans - {warehouseCode}</CardTitle>
-            <Badge 
-              variant={isConnected ? "default" : "secondary"} 
+            <Badge
+              variant={isConnected ? "default" : "secondary"}
               className="flex items-center gap-1 text-xs"
             >
               {isConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
@@ -306,7 +314,7 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
                   </div>
                   {getStatusBadge(scan.status)}
                 </div>
-                
+
                 <div className="space-y-2">
                   <div>
                     <div className="text-sm font-semibold text-foreground line-clamp-1">
@@ -316,7 +324,7 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
                       {scan.productCode}
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-3 gap-2 text-xs">
                     <div>
                       <div className="text-muted-foreground">Quantity</div>
@@ -327,8 +335,8 @@ const RecentScans = ({ warehouseCode }: RecentScansProps) => {
                     <div>
                       <div className="text-muted-foreground">Difference</div>
                       <div className={`font-bold ${
-                        scan.diff > 0 ? 'text-green-600' : 
-                        scan.diff < 0 ? 'text-red-600' : 
+                        scan.diff > 0 ? 'text-green-600' :
+                        scan.diff < 0 ? 'text-red-600' :
                         'text-foreground'
                       }`}>
                         {scan.diff > 0 ? '+' : ''}{scan.diff}
