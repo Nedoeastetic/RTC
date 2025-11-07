@@ -4,38 +4,47 @@ import { Activity, History, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface NavigationProps {
+  warehouseCode?: string;
   onUploadClick?: () => void;
 }
 
-const Navigation = ({ onUploadClick }: NavigationProps) => {
+const Navigation = ({ warehouseCode, onUploadClick }: NavigationProps) => {
   const location = useLocation();
+
+  const getDashboardPath = () => {
+    return warehouseCode ? `/dashboard/${warehouseCode}` : '/dashboard';
+  };
+
+  const getHistoryPath = () => {
+    return warehouseCode ? `/history/${warehouseCode}` : '/history';
+  };
 
   return (
     <nav className="bg-card border-b border-border px-6 py-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <Link to="/dashboard">
+          <Link to={getDashboardPath()}>
             <Button
-              variant={location.pathname === "/dashboard" ? "default" : "ghost"}
+              variant={location.pathname.includes('/dashboard') ? "default" : "ghost"}
               className={cn(
                 "space-x-2",
-                location.pathname === "/dashboard" && "bg-primary text-primary-foreground"
+                location.pathname.includes('/dashboard') && "bg-primary text-primary-foreground"
               )}
             >
               <Activity className="h-4 w-4" />
-              <span>Текущий мониторинг</span>
+              <span>Current Monitoring</span>
             </Button>
           </Link>
-          <Link to="/history">
+          <Link to={getHistoryPath()}>
             <Button
-              variant={location.pathname === "/history" ? "default" : "ghost"}
+              variant={location.pathname.includes('/history') ? "default" : "ghost"}
               className={cn(
                 "space-x-2",
-                location.pathname === "/history" && "bg-primary text-primary-foreground"
+                location.pathname.includes('/history') && "bg-primary text-primary-foreground"
               )}
             >
               <History className="h-4 w-4" />
-              <span>Исторические данные</span>
+              <span>Historical Data</span>
             </Button>
           </Link>
         </div>
@@ -43,7 +52,7 @@ const Navigation = ({ onUploadClick }: NavigationProps) => {
         {onUploadClick && (
           <Button onClick={onUploadClick} variant="outline" className="space-x-2">
             <Upload className="h-4 w-4" />
-            <span>Загрузить CSV</span>
+            <span>Upload CSV</span>
           </Button>
         )}
       </div>

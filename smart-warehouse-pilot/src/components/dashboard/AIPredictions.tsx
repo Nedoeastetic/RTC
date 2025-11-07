@@ -3,7 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, TrendingDown, Package, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+
+interface AIPredictionsProps {
+  warehouseCode: string;
+}
 
 interface Product {
   id: string;
@@ -15,37 +18,61 @@ interface Product {
   reorder_quantity: number;
 }
 
-const AIPredictions = () => {
+const AIPredictions = ({ warehouseCode }: AIPredictionsProps) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [confidence, setConfidence] = useState(87);
 
   useEffect(() => {
+    console.log('Loading AI predictions for:', warehouseCode);
     fetchCriticalProducts();
-  }, []);
+  }, [warehouseCode]);
 
   const fetchCriticalProducts = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .order("current_stock", { ascending: true });
-
-    if (!error && data) {
-      const criticalProducts = (data as Product[]).filter(product => {
-        const daysLeft = calculateDaysUntilDepletion(product);
-        return daysLeft <= 7 && daysLeft !== Infinity;
-      });
-      setProducts(criticalProducts);
-    }
-    setLoading(false);
+    
+    // TODO: Replace with real API call to /api/{warehouseCode}/predict
+    // Mock data for now
+    setTimeout(() => {
+      const mockProducts: Product[] = [
+        {
+          id: "1",
+          article: "TEL-4567",
+          name: "Router RT-AC68U",
+          current_stock: 15,
+          daily_consumption: 5,
+          min_stock_level: 20,
+          reorder_quantity: 50
+        },
+        {
+          id: "2",
+          article: "TEL-8901",
+          name: "Modem DSL-2640U",
+          current_stock: 8,
+          daily_consumption: 3,
+          min_stock_level: 15,
+          reorder_quantity: 30
+        },
+        {
+          id: "3",
+          article: "CAB-2345",
+          name: "Cable UTP Cat.5e",
+          current_stock: 2,
+          daily_consumption: 1,
+          min_stock_level: 10,
+          reorder_quantity: 25
+        }
+      ];
+      setProducts(mockProducts);
+      setLoading(false);
+    }, 1000);
   };
 
   const handleRefresh = () => {
-    toast.info("Обновление прогнозов...");
+    toast.info("Updating predictions...");
     fetchCriticalProducts();
     setConfidence(Math.floor(Math.random() * 15) + 80);
-    toast.success("Прогнозы обновлены");
+    toast.success("Predictions updated");
   };
 
   const calculateDaysUntilDepletion = (product: Product) => {
@@ -55,7 +82,7 @@ const AIPredictions = () => {
 
   const getDepletionDate = (product: Product) => {
     const days = calculateDaysUntilDepletion(product);
-    if (days === Infinity) return "Не определено";
+    if (days === Infinity) return "Not determined";
     const date = new Date();
     date.setDate(date.getDate() + days);
     return date.toLocaleDateString("ru-RU");
@@ -67,7 +94,7 @@ const AIPredictions = () => {
         <div className="flex justify-between items-center">
           <CardTitle className="flex items-center gap-2">
             <TrendingDown className="h-5 w-5" />
-            Критические прогнозы ИИ
+            AI Critical Predictions - {warehouseCode}
           </CardTitle>
           <Button
             variant="ghost"
@@ -79,16 +106,16 @@ const AIPredictions = () => {
           </Button>
         </div>
         <div className="flex items-center gap-2 mt-2">
-          <span className="text-sm text-muted-foreground">Точность прогноза:</span>
+          <span className="text-sm text-muted-foreground">Prediction accuracy:</span>
           <span className="text-sm font-semibold text-primary">{confidence}%</span>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
-          <p className="text-sm text-muted-foreground text-center py-8">Загрузка...</p>
+          <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
         ) : products.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">
-            Нет критических прогнозов
+            No critical predictions
           </p>
         ) : (
           products.map((product) => {
@@ -126,24 +153,24 @@ const AIPredictions = () => {
                         : "text-muted-foreground"
                     }`}
                   >
-                    {daysLeft === Infinity ? "∞" : `${daysLeft} дней`}
+                    {daysLeft === Infinity ? "∞" : `${daysLeft} days`}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
-                    <p className="text-muted-foreground mb-1">Текущий остаток</p>
+                    <p className="text-muted-foreground mb-1">Current stock</p>
                     <p className="font-semibold flex items-center gap-1">
                       <Package className="h-4 w-4" />
                       {product.current_stock}
                     </p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground mb-1">Истощится</p>
+                    <p className="text-muted-foreground mb-1">Depletes</p>
                     <p className="font-semibold">{depletionDate}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground mb-1">Рек. заказ</p>
+                    <p className="text-muted-foreground mb-1">Rec. order</p>
                     <p className="font-semibold text-primary">
                       {product.reorder_quantity}
                     </p>

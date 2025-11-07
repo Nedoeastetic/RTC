@@ -1,36 +1,46 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { LogOut } from "lucide-react";
-import { toast } from "sonner";
+import { LogOut, Warehouse } from "lucide-react";
 
-const Header = () => {
+interface HeaderProps {
+  warehouseCode?: string;
+}
+
+const Header = ({ warehouseCode }: HeaderProps) => {
   const navigate = useNavigate();
 
   const handleLogout = () => {
     localStorage.removeItem("token");
-    toast.success("Вы вышли из системы");
+    localStorage.removeItem("selectedWarehouse");
     navigate("/login");
   };
 
+  const handleLogoClick = () => {
+    navigate("/warehouses");
+  };
+
   return (
-    <header className="bg-card border-b border-border px-6 py-4">
-      <div className="flex items-center justify-between">
+    <header className="bg-white border-b px-6 py-4">
+      <div className="flex justify-between items-center">
         <div className="flex items-center space-x-4">
-          <div className="w-24 h-10 bg-primary rounded flex items-center justify-center">
-            <span className="text-sm font-bold text-primary-foreground">Ростелеком</span>
-          </div>
-          <div className="border-l border-border h-8"></div>
-          <h1 className="text-xl font-semibold text-foreground">Умный склад</h1>
+          <h1 
+            className="text-xl font-semibold cursor-pointer hover:text-primary transition-colors"
+            onClick={handleLogoClick}
+          >
+            Smart Warehouse
+          </h1>
+          {warehouseCode && (
+            <div className="flex items-center gap-2">
+              <Warehouse className="h-4 w-4" />
+              <span className="text-sm">Warehouse: {warehouseCode}</span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center space-x-4">
-          <div className="text-right">
-            <p className="text-sm font-medium text-foreground">Иван Петров</p>
-            <p className="text-xs text-muted-foreground">Оператор склада</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={handleLogout}>
+          <Button variant="outline" onClick={handleLogout}>
             <LogOut className="mr-2 h-4 w-4" />
-            Выход
+            Logout
           </Button>
         </div>
       </div>

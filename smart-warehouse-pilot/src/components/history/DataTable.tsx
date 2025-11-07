@@ -1,109 +1,214 @@
+// File: C:\Users\Admin\RTC\smart-warehouse-pilot\src\components\history\DataTable.tsx
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Download, FileText, BarChart3, ChevronUp, ChevronDown } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { format } from "date-fns";
+import { Download, FileText, BarChart3, ChevronUp, ChevronDown, Loader2 } from "lucide-react";
+import { apiClient } from "@/lib/api";
+import ProductHistoryModal from "./ProductHistoryModal";
 
 interface DataRow {
-  id: string;
-  scan_datetime: string;
-  robot_id: string;
-  zone: string;
-  article: string;
-  product_name: string;
-  expected_quantity: number;
-  actual_quantity: number;
+  productCode: string;
+  productName: string;
+  category: string;
+  expectedQuantity: number;
+  actualQuantity: number;
   difference: number;
-  status: string;
+  lastScannedAt: string;
+  statusCode: string;
+  robotCode: string;
+}
+
+interface ProductLastInventoryPageDTO {
+  total: number;
+  page: number;
+  size: number;
+  items: DataRow[];
 }
 
 interface DataTableProps {
+  warehouseCode: string;
+  filters: any;
   onExportExcel: (selected: string[]) => void;
   onExportPDF: (selected: string[]) => void;
   onShowChart: (selected: string[]) => void;
+  onSelectionChange: (selected: string[]) => void;
+  selectedProducts: string[];
 }
 
-const DataTable = ({ onExportExcel, onExportPDF, onShowChart }: DataTableProps) => {
-  const [data, setData] = useState<DataRow[]>([]);
+const DataTable = ({ 
+  warehouseCode, 
+  filters, 
+  onExportExcel, 
+  onExportPDF, 
+  onShowChart,
+  onSelectionChange,
+  selectedProducts 
+}: DataTableProps) => {
+  const [data, setData] = useState<ProductLastInventoryPageDTO | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedRows, setSelectedRows] = useState<string[]>([]);
-  const [sortColumn, setSortColumn] = useState<keyof DataRow | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [currentPage, setCurrentPage] = useState(1);
-  const rowsPerPage = 10;
+  const [sortColumn, setSortColumn] = useState<string>("lastScannedAt");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [currentPage, setCurrentPage] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedProductsModal, setSelectedProductsModal] = useState<string[]>([]);
+  const rowsPerPage = 20;
 
   useEffect(() => {
+    if (!warehouseCode) return;
     fetchData();
-  }, []);
+  }, [warehouseCode, currentPage, sortColumn, sortDirection, filters]);
 
   const fetchData = async () => {
     setLoading(true);
-    const { data: scans, error } = await supabase
-      .from("inventory_scans")
-      .select("*")
-      .order("scan_datetime", { ascending: false });
+    setError(null);
+    try {
+      const params: any = {
+        page: currentPage.toString(),
+        size: rowsPerPage.toString(),
+        sort: sortColumn,
+        order: sortDirection,
+      };
 
-    if (!error && scans) {
-      setData(scans as DataRow[]);
+      if (filters.q) params.q = filters.q;
+      if (filters.status && filters.status !== "all") params.statuses = [filters.status];
+      if (filters.robotCode && filters.robotCode !== "all") params.robots = [filters.robotCode];
+      if (filters.categories && filters.categories.length > 0) params.categories = filters.categories;
+
+      const queryString = new URLSearchParams(params).toString();
+      const data = await apiClient.get(`/${warehouseCode}/inventory/history/last?${queryString}`);
+      setData(data);
+    } catch (error) {
+      console.error('Failed to fetch last inventory data:', error);
+      setError('Failed to load data. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
-  const handleSort = (column: keyof DataRow) => {
+  const handleSort = (column: string) => {
     if (sortColumn === column) {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
     } else {
       setSortColumn(column);
       setSortDirection("asc");
     }
+    setCurrentPage(0);
   };
 
   const handleSelectAll = () => {
-    if (selectedRows.length === data.length) {
-      setSelectedRows([]);
+    if (!data?.items) return;
+
+    if (selectedProducts.length === data.items.length) {
+      onSelectionChange([]);
     } else {
-      setSelectedRows(data.map(row => row.id));
+      onSelectionChange(data.items.map(row => row.productCode));
     }
   };
 
-  const handleSelectRow = (id: string) => {
-    setSelectedRows(prev =>
-      prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
+  const handleSelectRow = (productCode: string) => {
+    onSelectionChange(
+      selectedProducts.includes(productCode) 
+        ? selectedProducts.filter(code => code !== productCode) 
+        : [...selectedProducts, productCode]
     );
   };
 
-  const getStatusBadge = (status: string) => {
-    const variant = status === "совпадает" ? "default" : "destructive";
-    return <Badge variant={variant}>{status}</Badge>;
+  const handleProductClick = (productCode: string) => {
+    setSelectedProductsModal([productCode]);
   };
 
-  const SortIcon = ({ column }: { column: keyof DataRow }) => {
+  const handleShowChart = () => {
+    if (selectedProducts.length > 0) {
+      onShowChart(selectedProducts);
+    } else {
+      onShowChart([]);
+    }
+  };
+
+  const getStatusBadge = (statusCode: string) => {
+    let variant: "default" | "secondary" | "destructive" | "outline" = "default";
+
+    switch (statusCode) {
+      case "OK":
+        variant = "default";
+        break;
+      case "LOW_STOCK":
+        variant = "secondary";
+        break;
+      case "CRITICAL":
+        variant = "destructive";
+        break;
+      default:
+        variant = "outline";
+    }
+
+    return <Badge variant={variant}>{statusCode}</Badge>;
+  };
+
+  const SortIcon = ({ column }: { column: string }) => {
     if (sortColumn !== column) return null;
     return sortDirection === "asc" ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />;
   };
 
-  const sortedData = [...data].sort((a, b) => {
-    if (!sortColumn) return 0;
-    const aVal = a[sortColumn];
-    const bVal = b[sortColumn];
-    const direction = sortDirection === "asc" ? 1 : -1;
-    return aVal > bVal ? direction : -direction;
-  });
+  const formatDateSafe = (dateString: string): string => {
+    if (!dateString) return "N/A";
 
-  const paginatedData = sortedData.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage
-  );
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return "Invalid Date";
+      }
 
-  const totalPages = Math.ceil(data.length / rowsPerPage);
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+
+      return `${day}.${month}.${year} ${hours}:${minutes}`;
+    } catch (error) {
+      console.error('Date formatting error:', error);
+      return "Date Error";
+    }
+  };
+
+  const totalPages = data ? Math.ceil(data.total / rowsPerPage) : 0;
 
   if (loading) {
     return (
-      <div className="p-6 text-center">
-        <p className="text-muted-foreground">Загрузка данных...</p>
+      <div className="bg-card border rounded-lg">
+        <div className="p-8 text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-card border rounded-lg p-8 text-center">
+        <p className="text-destructive mb-4">{error}</p>
+        <Button onClick={fetchData} variant="outline">
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  if (!data || !data.items || data.items.length === 0) {
+    return (
+      <div className="bg-card border rounded-lg p-8 text-center">
+        <p className="text-muted-foreground">
+          {Object.keys(filters).length > 0 ? "No data found for current filters" : "No data available"}
+        </p>
+        {Object.keys(filters).length > 0 && (
+          <Button onClick={() => window.location.reload()} variant="outline" className="mt-4">
+            Clear filters and reload
+          </Button>
+        )}
       </div>
     );
   }
@@ -115,8 +220,8 @@ const DataTable = ({ onExportExcel, onExportPDF, onShowChart }: DataTableProps) 
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onExportExcel(selectedRows)}
-            disabled={selectedRows.length === 0}
+            onClick={() => onExportExcel(selectedProducts)}
+            disabled={selectedProducts.length === 0}
           >
             <Download className="h-4 w-4 mr-2" />
             Excel
@@ -124,8 +229,8 @@ const DataTable = ({ onExportExcel, onExportPDF, onShowChart }: DataTableProps) 
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onExportPDF(selectedRows)}
-            disabled={selectedRows.length === 0}
+            onClick={() => onExportPDF(selectedProducts)}
+            disabled={selectedProducts.length === 0}
           >
             <FileText className="h-4 w-4 mr-2" />
             PDF
@@ -133,15 +238,15 @@ const DataTable = ({ onExportExcel, onExportPDF, onShowChart }: DataTableProps) 
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onShowChart(selectedRows)}
-            disabled={selectedRows.length === 0}
+            onClick={handleShowChart}
+            disabled={selectedProducts.length === 0}
           >
             <BarChart3 className="h-4 w-4 mr-2" />
             График
           </Button>
         </div>
         <span className="text-sm text-muted-foreground">
-          Выбрано: {selectedRows.length} из {data.length}
+          Выбрано: {selectedProducts.length} из {data.total}
         </span>
       </div>
 
@@ -151,61 +256,90 @@ const DataTable = ({ onExportExcel, onExportPDF, onShowChart }: DataTableProps) 
             <TableRow>
               <TableHead className="w-12">
                 <Checkbox
-                  checked={selectedRows.length === data.length && data.length > 0}
+                  checked={selectedProducts.length === data.items.length && data.items.length > 0}
                   onCheckedChange={handleSelectAll}
                 />
               </TableHead>
-              <TableHead onClick={() => handleSort("scan_datetime")} className="cursor-pointer">
+              <TableHead
+                onClick={() => handleSort("lastScannedAt")}
+                className="cursor-pointer hover:bg-muted/50"
+              >
                 <div className="flex items-center gap-1">
-                  Дата/Время
-                  <SortIcon column="scan_datetime" />
+                  Last Scanned
+                  <SortIcon column="lastScannedAt" />
                 </div>
               </TableHead>
-              <TableHead onClick={() => handleSort("robot_id")} className="cursor-pointer">
+              <TableHead
+                onClick={() => handleSort("robotCode")}
+                className="cursor-pointer hover:bg-muted/50"
+              >
                 <div className="flex items-center gap-1">
-                  Робот
-                  <SortIcon column="robot_id" />
+                  Robot
+                  <SortIcon column="robotCode" />
                 </div>
               </TableHead>
-              <TableHead onClick={() => handleSort("zone")} className="cursor-pointer">
+              <TableHead
+                onClick={() => handleSort("productCode")}
+                className="cursor-pointer hover:bg-muted/50"
+              >
                 <div className="flex items-center gap-1">
-                  Зона
-                  <SortIcon column="zone" />
+                  Product Code
+                  <SortIcon column="productCode" />
                 </div>
               </TableHead>
-              <TableHead onClick={() => handleSort("article")} className="cursor-pointer">
+              <TableHead
+                onClick={() => handleSort("productName")}
+                className="cursor-pointer hover:bg-muted/50"
+              >
                 <div className="flex items-center gap-1">
-                  Артикул
-                  <SortIcon column="article" />
+                  Product Name
+                  <SortIcon column="productName" />
                 </div>
               </TableHead>
-              <TableHead>Название</TableHead>
-              <TableHead className="text-right">Ожид.</TableHead>
-              <TableHead className="text-right">Факт.</TableHead>
-              <TableHead className="text-right">Разница</TableHead>
-              <TableHead>Статус</TableHead>
+              <TableHead
+                onClick={() => handleSort("category")}
+                className="cursor-pointer hover:bg-muted/50"
+              >
+                <div className="flex items-center gap-1">
+                  Category
+                  <SortIcon column="category" />
+                </div>
+              </TableHead>
+              <TableHead className="text-right">Expected</TableHead>
+              <TableHead className="text-right">Actual</TableHead>
+              <TableHead className="text-right">Difference</TableHead>
+              <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedData.map((row) => (
-              <TableRow key={row.id}>
+            {data.items.map((row) => (
+              <TableRow key={row.productCode} className="hover:bg-muted/50">
                 <TableCell>
                   <Checkbox
-                    checked={selectedRows.includes(row.id)}
-                    onCheckedChange={() => handleSelectRow(row.id)}
+                    checked={selectedProducts.includes(row.productCode)}
+                    onCheckedChange={() => handleSelectRow(row.productCode)}
                   />
                 </TableCell>
-                <TableCell>{format(new Date(row.scan_datetime), "dd.MM.yyyy HH:mm")}</TableCell>
-                <TableCell>{row.robot_id}</TableCell>
-                <TableCell>{row.zone}</TableCell>
-                <TableCell className="font-mono">{row.article}</TableCell>
-                <TableCell>{row.product_name}</TableCell>
-                <TableCell className="text-right">{row.expected_quantity}</TableCell>
-                <TableCell className="text-right">{row.actual_quantity}</TableCell>
-                <TableCell className={`text-right font-semibold ${row.difference !== 0 ? 'text-destructive' : ''}`}>
-                  {row.difference > 0 ? '+' : ''}{row.difference}
+                <TableCell>
+                  {formatDateSafe(row.lastScannedAt)}
                 </TableCell>
-                <TableCell>{getStatusBadge(row.status)}</TableCell>
+                <TableCell>{row.robotCode || "N/A"}</TableCell>
+                <TableCell 
+                  className="font-mono cursor-pointer text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                  onClick={() => handleProductClick(row.productCode)}
+                >
+                  {row.productCode || "N/A"}
+                </TableCell>
+                <TableCell>{row.productName || "N/A"}</TableCell>
+                <TableCell>{row.category || "N/A"}</TableCell>
+                <TableCell className="text-right">{row.expectedQuantity ?? 0}</TableCell>
+                <TableCell className="text-right">{row.actualQuantity ?? 0}</TableCell>
+                <TableCell className={`text-right font-semibold ${
+                  row.difference !== 0 ? 'text-destructive' : ''
+                }`}>
+                  {row.difference > 0 ? '+' : ''}{row.difference ?? 0}
+                </TableCell>
+                <TableCell>{getStatusBadge(row.statusCode)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -214,27 +348,36 @@ const DataTable = ({ onExportExcel, onExportPDF, onShowChart }: DataTableProps) 
 
       <div className="p-4 border-t flex justify-between items-center">
         <span className="text-sm text-muted-foreground">
-          Страница {currentPage} из {totalPages}
+          Page {currentPage + 1} of {totalPages} • Total records: {data.total}
         </span>
         <div className="flex gap-2">
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-            disabled={currentPage === 1}
+            onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))}
+            disabled={currentPage === 0}
           >
-            Назад
+            Previous
           </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-            disabled={currentPage === totalPages}
+            onClick={() => setCurrentPage(prev => Math.min(totalPages - 1, prev + 1))}
+            disabled={currentPage >= totalPages - 1}
           >
-            Вперед
+            Next
           </Button>
         </div>
       </div>
+
+      {selectedProductsModal.length > 0 && (
+        <ProductHistoryModal
+          warehouseCode={warehouseCode}
+          productCodes={selectedProductsModal}
+          open={selectedProductsModal.length > 0}
+          onClose={() => setSelectedProductsModal([])}
+        />
+      )}
     </div>
   );
 };

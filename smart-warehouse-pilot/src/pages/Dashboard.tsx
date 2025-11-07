@@ -1,15 +1,15 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import Header from "@/components/Header";
 import Navigation from "@/components/Navigation";
 import WarehouseMap from "@/components/dashboard/WarehouseMap";
 import RealTimeStats from "@/components/dashboard/RealTimeStats";
 import RecentScans from "@/components/dashboard/RecentScans";
 import AIPredictions from "@/components/dashboard/AIPredictions";
-import WebSocketIndicator from "@/components/dashboard/WebSocketIndicator";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { warehouseCode } = useParams();
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -18,36 +18,36 @@ const Dashboard = () => {
     }
   }, [navigate]);
 
+  if (!warehouseCode) {
+    return <div>No warehouse selected</div>;
+  }
+
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <Navigation />
-      
+    <div className="min-h-screen bg-gray-50">
+      <Header warehouseCode={warehouseCode} />
+      <Navigation warehouseCode={warehouseCode} />
+
       <main className="p-6">
         <div className="grid grid-cols-2 gap-6 h-[calc(100vh-180px)]">
-          {/* Left side - Warehouse Map */}
           <div className="row-span-3">
-            <WarehouseMap />
+            <WarehouseMap warehouseCode={warehouseCode} />
           </div>
 
-          {/* Right side - Stats, Scans, and Predictions */}
           <div className="space-y-6">
             <div className="h-[calc(33%-8px)]">
-              <RealTimeStats />
+              <RealTimeStats warehouseCode={warehouseCode} />
             </div>
           </div>
 
           <div className="h-[calc(33%-8px)]">
-            <RecentScans />
+            <RecentScans warehouseCode={warehouseCode} />
           </div>
 
           <div className="h-[calc(34%-8px)]">
-            <AIPredictions />
+            <AIPredictions warehouseCode={warehouseCode} />
           </div>
         </div>
       </main>
-
-      <WebSocketIndicator />
     </div>
   );
 };
