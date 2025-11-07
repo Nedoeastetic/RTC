@@ -15,11 +15,20 @@ const Header = ({ warehouseCode }: HeaderProps) => {
     navigate("/login");
   };
 
+  const handleLogoClick = () => {
+    navigate("/warehouses");
+  };
+
   return (
     <header className="bg-white border-b px-6 py-4">
       <div className="flex justify-between items-center">
         <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-semibold">Smart Warehouse</h1>
+          <h1 
+            className="text-xl font-semibold cursor-pointer hover:text-primary transition-colors"
+            onClick={handleLogoClick}
+          >
+            Smart Warehouse
+          </h1>
           {warehouseCode && (
             <div className="flex items-center gap-2">
               <Warehouse className="h-4 w-4" />
