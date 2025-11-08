@@ -1,138 +1,237 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertCircle, Calendar, Package } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AlertCircle, Calendar, Package, RefreshCw, CheckCircle } from "lucide-react";
+import { toast } from "sonner";
 
 interface StockDepletionForecastProps {
   warehouseCode: string;
 }
 
-interface Product {
-  id: string;
-  article: string;
-  name: string;
-  current_stock: number;
-  daily_consumption: number;
-  min_stock_level: number;
+interface Prediction {
+  sku: string;
+  days_until_stockout: number;
+  recommended_order: number;
+  confidence_score: number;
+  critical_level: "CRITICAL" | "MEDIUM" | "OK";
+  warehouse_code: string;
+  last_updated: number;
+  product_name?: string;
 }
 
 const StockDepletionForecast = ({ warehouseCode }: StockDepletionForecastProps) => {
-  const [products, setProducts] = useState<Product[]>([]);
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<number>(Date.now());
 
-  useEffect(() => {
-    console.log('Loading stock depletion forecast for:', warehouseCode);
-    fetchProducts();
+  // Функция для получения критичных и средних прогнозов
+  const fetchCriticalAndMediumPredictions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/${warehouseCode}/predict/criticality`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const text = await response.text();
+      if (!text) {
+        throw new Error("Empty response from server");
+      }
+      
+      const result = JSON.parse(text);
+      
+      if (result.status === "ok") {
+        // Берем только критические и средние прогнозы
+        const criticalAndMediumPredictions = [
+          ...(result.data?.CRITICAL || []),
+          ...(result.data?.MEDIUM || [])
+        ];
+        setPredictions(criticalAndMediumPredictions);
+        setLastUpdated(Date.now());
+        toast.success(`Loaded ${criticalAndMediumPredictions.length} critical & medium predictions`);
+      } else {
+        toast.error(result.message || "Failed to load predictions");
+      }
+    } catch (error) {
+      console.error("Failed to fetch predictions:", error);
+      toast.error("Failed to load predictions from server");
+    } finally {
+      setLoading(false);
+    }
   }, [warehouseCode]);
 
-  const fetchProducts = async () => {
-    setLoading(true);
+  // Первоначальная загрузка данных
+  useEffect(() => {
+    console.log('Loading stock depletion forecast for:', warehouseCode);
+    fetchCriticalAndMediumPredictions();
+  }, [warehouseCode, fetchCriticalAndMediumPredictions]);
+
+  // Обработчик обновления данных
+  const handleRefresh = useCallback(() => {
+    toast.info("Updating depletion forecast...");
+    fetchCriticalAndMediumPredictions();
+  }, [fetchCriticalAndMediumPredictions]);
+
+  const getDepletionDate = (daysUntilStockout: number) => {
+    if (daysUntilStockout <= 0) return "Now";
+    if (daysUntilStockout > 365) return "More than 1 year";
     
-    // TODO: Replace with real API call
-    setTimeout(() => {
-      const mockProducts: Product[] = [
-        {
-          id: "1",
-          article: "TEL-4567",
-          name: "Router RT-AC68U",
-          current_stock: 45,
-          daily_consumption: 5,
-          min_stock_level: 20
-        },
-        {
-          id: "2", 
-          article: "TEL-8901",
-          name: "Modem DSL-2640U",
-          current_stock: 12,
-          daily_consumption: 3,
-          min_stock_level: 15
-        },
-        {
-          id: "3",
-          article: "CAB-2345",
-          name: "Cable UTP Cat.5e", 
-          current_stock: 3,
-          daily_consumption: 2,
-          min_stock_level: 10
-        }
-      ];
-      setProducts(mockProducts);
-      setLoading(false);
-    }, 1000);
-  };
-
-  const calculateDaysUntilDepletion = (product: Product) => {
-    if (product.daily_consumption === 0) return Infinity;
-    return Math.floor(product.current_stock / product.daily_consumption);
-  };
-
-  const getDepletionDate = (product: Product) => {
-    const days = calculateDaysUntilDepletion(product);
-    if (days === Infinity) return "Not determined";
     const date = new Date();
-    date.setDate(date.getDate() + days);
+    date.setDate(date.getDate() + Math.round(daysUntilStockout));
     return date.toLocaleDateString("ru-RU");
   };
 
-  const getUrgencyColor = (days: number) => {
-    if (days <= 3) return "text-red-500";
-    if (days <= 7) return "text-yellow-500";
+  const getUrgencyColor = (criticalLevel: string, daysUntilStockout: number) => {
+    if (criticalLevel === "CRITICAL" || daysUntilStockout <= 3) return "text-red-500";
+    if (criticalLevel === "MEDIUM" || daysUntilStockout <= 7) return "text-yellow-500";
     return "text-muted-foreground";
   };
 
-  if (loading) {
-    return (
-      <Card className="h-full">
-        <CardContent className="p-6">
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const getCriticalityIcon = (criticalLevel: string) => {
+    switch (criticalLevel) {
+      case "CRITICAL":
+        return <AlertCircle className="h-4 w-4 text-red-500" />;
+      case "MEDIUM":
+        return <AlertCircle className="h-4 w-4 text-yellow-500" />;
+      default:
+        return <Package className="h-4 w-4 text-muted-foreground" />;
+    }
+  };
+
+  // Сортируем прогнозы: сначала критические, потом средние, по дням до истощения (по возрастанию)
+  const sortedPredictions = [...predictions].sort((a, b) => {
+    // Сначала по критичности
+    if (a.critical_level === "CRITICAL" && b.critical_level !== "CRITICAL") return -1;
+    if (a.critical_level !== "CRITICAL" && b.critical_level === "CRITICAL") return 1;
+    
+    // Потом по дням до истощения
+    return a.days_until_stockout - b.days_until_stockout;
+  });
 
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Calendar className="h-5 w-5" />
-          Stock Depletion Forecast - {warehouseCode}
-        </CardTitle>
+        <div className="flex justify-between items-center">
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            Stock Depletion Forecast - {warehouseCode}
+          </CardTitle>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+        
+        <div className="flex items-center justify-between mt-2">
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-muted-foreground">
+              Last updated: {new Date(lastUpdated).toLocaleTimeString("ru-RU")}
+            </span>
+            <span className="text-muted-foreground">
+              {sortedPredictions.length} items at risk
+            </span>
+          </div>
+        </div>
       </CardHeader>
+      
       <CardContent className="space-y-3">
-        {products.slice(0, 5).map((product) => {
-          const daysLeft = calculateDaysUntilDepletion(product);
-          const depletionDate = getDepletionDate(product);
+        {loading ? (
+          <div className="text-center py-8">
+            <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">Loading depletion forecast...</p>
+          </div>
+        ) : sortedPredictions.length === 0 ? (
+          <div className="text-center py-8">
+            <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">
+              No critical or medium risk items
+            </p>
+          </div>
+        ) : (
+          sortedPredictions.slice(0, 5).map((prediction) => {
+            const daysLeft = prediction.days_until_stockout;
+            const depletionDate = getDepletionDate(daysLeft);
+            const urgencyColor = getUrgencyColor(prediction.critical_level, daysLeft);
 
-          return (
-            <div key={product.id} className="p-3 border rounded-lg bg-card">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex-1">
-                  <p className="font-medium text-sm">{product.name}</p>
-                  <p className="text-xs text-muted-foreground">{product.article}</p>
+            return (
+              <div key={prediction.sku} className="p-3 border rounded-lg bg-card">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-2 flex-1">
+                    {getCriticalityIcon(prediction.critical_level)}
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{prediction.sku}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {prediction.product_name || "Product"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={`text-right ${urgencyColor}`}>
+                    <span className="text-sm font-semibold">
+                      {daysLeft <= 0 
+                        ? "OUT OF STOCK" 
+                        : `${Math.round(daysLeft)} days`
+                      }
+                    </span>
+                    <p className="text-xs opacity-75">until stockout</p>
+                  </div>
                 </div>
-                {daysLeft <= 7 && daysLeft !== Infinity && (
-                  <AlertCircle className={`h-4 w-4 ${getUrgencyColor(daysLeft)}`} />
+
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <p className="text-muted-foreground">Depletes</p>
+                    <p className="font-semibold">{depletionDate}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Rec. order</p>
+                    <p className="font-semibold">
+                      {Math.round(prediction.recommended_order)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Confidence</p>
+                    <p className="font-semibold">
+                      {Math.round(prediction.confidence_score * 100)}%
+                    </p>
+                  </div>
+                </div>
+                
+                {prediction.last_updated && (
+                  <div className="mt-2 pt-2 border-t border-opacity-20">
+                    <p className="text-xs opacity-60">
+                      Updated: {new Date(prediction.last_updated).toLocaleTimeString("ru-RU")}
+                    </p>
+                  </div>
                 )}
               </div>
-
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div>
-                  <p className="text-muted-foreground">Remaining</p>
-                  <p className="font-semibold">{product.current_stock} pcs</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">In</p>
-                  <p className={`font-semibold ${getUrgencyColor(daysLeft)}`}>
-                    {daysLeft === Infinity ? "∞" : `${daysLeft} days`}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Date</p>
-                  <p className="font-semibold text-xs">{depletionDate}</p>
-                </div>
+            );
+          })
+        )}
+        
+        {/* Статистика по уровням критичности */}
+        {sortedPredictions.length > 0 && (
+          <div className="pt-4 border-t">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground">
+                Showing: {sortedPredictions.length} items
+              </span>
+              <div className="flex gap-4">
+                <span className="flex items-center gap-1">
+                  <div className="w-2 h-2 bg-red-500 rounded-full" />
+                  CRITICAL: {sortedPredictions.filter(p => p.critical_level === "CRITICAL").length}
+                </span>
+                <span className="flex items-center gap-1">
+                  <div className="w-2 h-2 bg-yellow-500 rounded-full" />
+                  MEDIUM: {sortedPredictions.filter(p => p.critical_level === "MEDIUM").length}
+                </span>
               </div>
             </div>
-          );
-        })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

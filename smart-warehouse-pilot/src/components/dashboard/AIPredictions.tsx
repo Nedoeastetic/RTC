@@ -1,92 +1,146 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, TrendingDown, Package, AlertTriangle } from "lucide-react";
+import { RefreshCw, TrendingDown, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 interface AIPredictionsProps {
   warehouseCode: string;
 }
 
-interface Product {
-  id: string;
-  article: string;
-  name: string;
-  current_stock: number;
-  daily_consumption: number;
-  min_stock_level: number;
-  reorder_quantity: number;
+interface Prediction {
+  sku: string;
+  days_until_stockout: number;
+  recommended_order: number;
+  confidence_score: number;
+  critical_level: "CRITICAL" | "MEDIUM" | "OK";
+  warehouse_code: string;
+  last_updated: number;
 }
 
 const AIPredictions = ({ warehouseCode }: AIPredictionsProps) => {
-  const [products, setProducts] = useState<Product[]>([]);
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [loading, setLoading] = useState(false);
-  const [confidence, setConfidence] = useState(87);
+  const [lastUpdated, setLastUpdated] = useState<number>(Date.now());
 
-  useEffect(() => {
-    console.log('Loading AI predictions for:', warehouseCode);
-    fetchCriticalProducts();
+  // Функция для получения критичных прогнозов через REST
+  const fetchCriticalPredictions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/${warehouseCode}/predict/criticality/critical`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const text = await response.text();
+      if (!text) {
+        throw new Error("Empty response from server");
+      }
+      
+      const result = JSON.parse(text);
+      
+      if (result.status === "ok") {
+        setPredictions(result.predictions || []);
+        setLastUpdated(Date.now());
+        toast.success(`Loaded ${result.predictions?.length || 0} critical predictions`);
+      } else {
+        toast.error(result.message || "Failed to load predictions");
+      }
+    } catch (error) {
+      console.error("Failed to fetch critical predictions:", error);
+      toast.error("Failed to load critical predictions from server");
+    } finally {
+      setLoading(false);
+    }
   }, [warehouseCode]);
 
-  const fetchCriticalProducts = async () => {
+  // Функция для получения всех прогнозов через REST
+  const fetchAllPredictions = useCallback(async () => {
     setLoading(true);
-    
-    // TODO: Replace with real API call to /api/{warehouseCode}/predict
-    // Mock data for now
-    setTimeout(() => {
-      const mockProducts: Product[] = [
-        {
-          id: "1",
-          article: "TEL-4567",
-          name: "Router RT-AC68U",
-          current_stock: 15,
-          daily_consumption: 5,
-          min_stock_level: 20,
-          reorder_quantity: 50
-        },
-        {
-          id: "2",
-          article: "TEL-8901",
-          name: "Modem DSL-2640U",
-          current_stock: 8,
-          daily_consumption: 3,
-          min_stock_level: 15,
-          reorder_quantity: 30
-        },
-        {
-          id: "3",
-          article: "CAB-2345",
-          name: "Cable UTP Cat.5e",
-          current_stock: 2,
-          daily_consumption: 1,
-          min_stock_level: 10,
-          reorder_quantity: 25
-        }
-      ];
-      setProducts(mockProducts);
+    try {
+      const response = await fetch(`/api/${warehouseCode}/predict/criticality`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const text = await response.text();
+      if (!text) {
+        throw new Error("Empty response from server");
+      }
+      
+      const result = JSON.parse(text);
+      
+      if (result.status === "ok") {
+        // Берем только критические прогнозы из всех данных
+        const criticalPredictions = result.data?.CRITICAL || [];
+        setPredictions(criticalPredictions);
+        setLastUpdated(Date.now());
+        toast.success(`Loaded ${criticalPredictions.length} critical predictions`);
+      } else {
+        toast.error(result.message || "Failed to load predictions");
+      }
+    } catch (error) {
+      console.error("Failed to fetch all predictions:", error);
+      toast.error("Failed to load predictions from server");
+    } finally {
       setLoading(false);
-    }, 1000);
-  };
+    }
+  }, [warehouseCode]);
 
-  const handleRefresh = () => {
-    toast.info("Updating predictions...");
-    fetchCriticalProducts();
-    setConfidence(Math.floor(Math.random() * 15) + 80);
-    toast.success("Predictions updated");
-  };
+  // Первоначальная загрузка данных
+  useEffect(() => {
+    console.log('Loading AI predictions for:', warehouseCode);
+    fetchCriticalPredictions();
+  }, [warehouseCode, fetchCriticalPredictions]);
 
-  const calculateDaysUntilDepletion = (product: Product) => {
-    if (product.daily_consumption === 0) return Infinity;
-    return Math.floor(product.current_stock / product.daily_consumption);
-  };
+  // Обработчик обновления данных
+  const handleRefresh = useCallback(() => {
+    toast.info("Updating critical predictions...");
+    fetchCriticalPredictions();
+  }, [fetchCriticalPredictions]);
 
-  const getDepletionDate = (product: Product) => {
-    const days = calculateDaysUntilDepletion(product);
-    if (days === Infinity) return "Not determined";
+  // Функция для получения даты истощения запасов
+  const getDepletionDate = (daysUntilStockout: number) => {
+    if (daysUntilStockout <= 0) return "Now";
+    if (daysUntilStockout > 365) return "More than 1 year";
+    
     const date = new Date();
-    date.setDate(date.getDate() + days);
+    date.setDate(date.getDate() + Math.round(daysUntilStockout));
     return date.toLocaleDateString("ru-RU");
   };
+
+  // Функция для получения иконки по уровню критичности
+  const getCriticalityIcon = (criticalLevel: string) => {
+    switch (criticalLevel) {
+      case "CRITICAL":
+        return <AlertTriangle className="h-4 w-4 text-red-500" />;
+      case "MEDIUM":
+        return <XCircle className="h-4 w-4 text-yellow-500" />;
+      case "OK":
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      default:
+        return <AlertTriangle className="h-4 w-4 text-gray-500" />;
+    }
+  };
+
+  // Функция для получения стилей по уровню критичности
+  const getCriticalityStyles = (criticalLevel: string) => {
+    switch (criticalLevel) {
+      case "CRITICAL":
+        return "bg-red-50 dark:bg-red-950/20 border-red-500 text-red-800 dark:text-red-300";
+      case "MEDIUM":
+        return "bg-yellow-50 dark:bg-yellow-950/20 border-yellow-500 text-yellow-800 dark:text-yellow-300";
+      case "OK":
+        return "bg-green-50 dark:bg-green-950/20 border-green-500 text-green-800 dark:text-green-300";
+      default:
+        return "bg-gray-50 dark:bg-gray-950/20 border-gray-500 text-gray-800 dark:text-gray-300";
+    }
+  };
+
+  // Этот компонент отображает ТОЛЬКО критические прогнозы
+  const criticalPredictions = predictions.filter(p => p.critical_level === "CRITICAL");
 
   return (
     <Card className="h-full">
@@ -94,88 +148,119 @@ const AIPredictions = ({ warehouseCode }: AIPredictionsProps) => {
         <div className="flex justify-between items-center">
           <CardTitle className="flex items-center gap-2">
             <TrendingDown className="h-5 w-5" />
-            AI Critical Predictions - {warehouseCode}
+            Critical AI Predictions - {warehouseCode}
           </CardTitle>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleRefresh}
-            disabled={loading}
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleRefresh}
+              disabled={loading}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 mt-2">
-          <span className="text-sm text-muted-foreground">Prediction accuracy:</span>
-          <span className="text-sm font-semibold text-primary">{confidence}%</span>
+        
+        <div className="flex items-center justify-between mt-2">
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-muted-foreground">
+              Last updated: {new Date(lastUpdated).toLocaleTimeString("ru-RU")}
+            </span>
+            <span className="text-muted-foreground">
+              {criticalPredictions.length} critical items
+            </span>
+          </div>
+          
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchCriticalPredictions}
+              disabled={loading}
+            >
+              Critical Only
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchAllPredictions}
+              disabled={loading}
+            >
+              Refresh All
+            </Button>
+          </div>
         </div>
       </CardHeader>
+      
       <CardContent className="space-y-4">
         {loading ? (
-          <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
-        ) : products.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-8">
-            No critical predictions
-          </p>
+          <div className="text-center py-8">
+            <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">Loading critical predictions...</p>
+          </div>
+        ) : criticalPredictions.length === 0 ? (
+          <div className="text-center py-8">
+            <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">
+              No critical predictions - all items are stable
+            </p>
+          </div>
         ) : (
-          products.map((product) => {
-            const daysLeft = calculateDaysUntilDepletion(product);
-            const isUrgent = daysLeft <= 3;
-            const isWarning = daysLeft <= 7 && daysLeft > 3;
-            const depletionDate = getDepletionDate(product);
+          criticalPredictions.map((prediction) => {
+            const depletionDate = getDepletionDate(prediction.days_until_stockout);
+            const styles = getCriticalityStyles(prediction.critical_level);
 
             return (
               <div
-                key={product.id}
-                className={`p-4 rounded-lg border-l-4 ${
-                  isUrgent
-                    ? "bg-red-50 dark:bg-red-950/20 border-red-500"
-                    : isWarning
-                    ? "bg-yellow-50 dark:bg-yellow-950/20 border-yellow-500"
-                    : "bg-card border-primary/20"
-                }`}
+                key={prediction.sku}
+                className={`p-4 rounded-lg border-l-4 ${styles}`}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    {isUrgent && <AlertTriangle className="h-4 w-4 text-red-500" />}
-                    {isWarning && <AlertTriangle className="h-4 w-4 text-yellow-500" />}
+                    {getCriticalityIcon(prediction.critical_level)}
                     <div>
-                      <h4 className="font-semibold">{product.name}</h4>
-                      <p className="text-xs text-muted-foreground">{product.article}</p>
+                      <h4 className="font-semibold">{prediction.sku}</h4>
+                      <p className="text-xs opacity-75">SKU</p>
                     </div>
                   </div>
-                  <span
-                    className={`text-sm font-semibold ${
-                      isUrgent
-                        ? "text-red-600 dark:text-red-400"
-                        : isWarning
-                        ? "text-yellow-600 dark:text-yellow-400"
-                        : "text-muted-foreground"
-                    }`}
-                  >
-                    {daysLeft === Infinity ? "∞" : `${daysLeft} days`}
-                  </span>
+                  <div className="text-right">
+                    <span className="text-sm font-semibold">
+                      {prediction.days_until_stockout <= 0 
+                        ? "OUT OF STOCK" 
+                        : `${Math.round(prediction.days_until_stockout)} days`
+                      }
+                    </span>
+                    <p className="text-xs opacity-75">until stockout</p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
-                    <p className="text-muted-foreground mb-1">Current stock</p>
-                    <p className="font-semibold flex items-center gap-1">
-                      <Package className="h-4 w-4" />
-                      {product.current_stock}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground mb-1">Depletes</p>
+                    <p className="opacity-75 mb-1">Depletes</p>
                     <p className="font-semibold">{depletionDate}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground mb-1">Rec. order</p>
-                    <p className="font-semibold text-primary">
-                      {product.reorder_quantity}
+                    <p className="opacity-75 mb-1">Rec. order</p>
+                    <p className="font-semibold">
+                      {Math.round(prediction.recommended_order)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="opacity-75 mb-1">Confidence</p>
+                    <p className="font-semibold">
+                      {Math.round(prediction.confidence_score * 100)}%
                     </p>
                   </div>
                 </div>
+                
+                {prediction.last_updated && (
+                  <div className="mt-2 pt-2 border-t border-opacity-20">
+                    <p className="text-xs opacity-60">
+                      Updated: {new Date(prediction.last_updated).toLocaleTimeString("ru-RU")}
+                    </p>
+                  </div>
+                )}
               </div>
             );
           })

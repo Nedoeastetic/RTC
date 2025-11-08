@@ -6,6 +6,10 @@ import { toast } from 'sonner';
 interface WebSocketMessage {
   type: string;
   data: any;
+  warehouse_code?: string;
+  criticality?: string;
+  timestamp?: number;
+  status?: string;
 }
 
 interface UseWebSocketProps {
@@ -15,6 +19,8 @@ interface UseWebSocketProps {
   onStatsUpdate?: (data: any) => void;
   onWarehouseRobotsUpdate?: (data: any) => void;
   onWarehouseLocationUpdate?: (data: any) => void;
+  onPredictionsUpdate?: (data: any) => void;
+  onCriticalityUpdate?: (data: any) => void;
 }
 
 export const useWebSocket = ({
@@ -23,7 +29,9 @@ export const useWebSocket = ({
   onLocationUpdate,
   onStatsUpdate,
   onWarehouseRobotsUpdate,
-  onWarehouseLocationUpdate
+  onWarehouseLocationUpdate,
+  onPredictionsUpdate,
+  onCriticalityUpdate
 }: UseWebSocketProps) => {
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting');
@@ -44,16 +52,13 @@ export const useWebSocket = ({
       return () => {};
     }
 
-    // Используем SockJS вместо чистого WebSocket
     const createSockJS = () => {
       return new SockJS('http://localhost:8080/ws');
     };
 
     const client = new Client({
-      // Используем SockJS factory
       webSocketFactory: createSockJS,
       
-      // Токен передаем в STOMP connect headers
       connectHeaders: {
         'Authorization': `Bearer ${token}`,
         'X-Warehouse-Code': warehouseCode,
@@ -82,7 +87,6 @@ export const useWebSocket = ({
         toast.success('Real-time updates connected');
       }
 
-      // Функция для подписки с авторизацией
       const subscribeWithAuth = (destination: string, callback: (data: WebSocketMessage) => void) => {
         client.subscribe(destination, (message) => {
           try {
@@ -128,6 +132,50 @@ export const useWebSocket = ({
       subscribeWithAuth(`/topic/dashboard/robot/+`, (data) => {
         if (data.type === 'robot_update' && onRobotUpdate) {
           onRobotUpdate(data.data);
+        }
+      });
+
+      // Prediction updates
+      subscribeWithAuth(`/topic/dashboard/predictions`, (data) => {
+        if ((data.type === 'prediction_update' || data.type === 'prediction_data') && onPredictionsUpdate) {
+          onPredictionsUpdate(data);
+        }
+      });
+
+      subscribeWithAuth(`/topic/dashboard/predictions/${warehouseCode}`, (data) => {
+        if ((data.type === 'prediction_update' || data.type === 'prediction_data' || data.type === 'prediction_refresh') && onPredictionsUpdate) {
+          onPredictionsUpdate(data);
+        }
+      });
+
+      // Criticality updates
+      subscribeWithAuth(`/topic/dashboard/predictions/criticality`, (data) => {
+        if ((data.type === 'criticality_update' || data.type === 'criticality_data') && onCriticalityUpdate) {
+          onCriticalityUpdate(data);
+        }
+      });
+
+      subscribeWithAuth(`/topic/dashboard/predictions/criticality/${warehouseCode}`, (data) => {
+        if ((data.type === 'criticality_update' || data.type === 'all_criticality_data') && onCriticalityUpdate) {
+          onCriticalityUpdate(data);
+        }
+      });
+
+      subscribeWithAuth(`/topic/dashboard/predictions/criticality/${warehouseCode}/critical`, (data) => {
+        if ((data.type === 'criticality_level_update' || data.type === 'criticality_data') && onCriticalityUpdate) {
+          onCriticalityUpdate(data);
+        }
+      });
+
+      subscribeWithAuth(`/topic/dashboard/predictions/criticality/${warehouseCode}/medium`, (data) => {
+        if ((data.type === 'criticality_level_update' || data.type === 'criticality_data') && onCriticalityUpdate) {
+          onCriticalityUpdate(data);
+        }
+      });
+
+      subscribeWithAuth(`/topic/dashboard/predictions/criticality/${warehouseCode}/ok`, (data) => {
+        if ((data.type === 'criticality_level_update' || data.type === 'criticality_data') && onCriticalityUpdate) {
+          onCriticalityUpdate(data);
         }
       });
     };
@@ -186,7 +234,9 @@ export const useWebSocket = ({
     onLocationUpdate, 
     onStatsUpdate, 
     onWarehouseRobotsUpdate, 
-    onWarehouseLocationUpdate
+    onWarehouseLocationUpdate,
+    onPredictionsUpdate,
+    onCriticalityUpdate
   ]);
 
   useEffect(() => {
